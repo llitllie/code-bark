@@ -1,8 +1,10 @@
 # Code Bark
 
-A single-file Bash hook script that forwards [Claude Code](https://code.claude.com/) notification events **and** question prompts (AskUserQuestion) to iOS via the [Bark](https://github.com/finb/bark) push notification API.
+A single-file Bash hook script that forwards [Claude Code](https://code.claude.com/) events to iOS via the [Bark](https://github.com/finb/bark) push notification API.
 
-When Claude asks you a question with multiple-choice options, you'll get a push notification showing every question and its options — so you'll know what you need to answer even if you've stepped away from the terminal.
+- **Permission requests** — see what Claude wants to do (e.g., "Run: npm test", "Edit file: config.ts") before approving
+- **Questions (AskUserQuestion)** — see every question and its options so you know what to answer
+- **Notifications** — idle prompts, auth events, and other alerts
 
 ## Prerequisites
 
@@ -37,12 +39,23 @@ chmod +x ~/.claude/hooks/notify.sh
 
 ### 3. Enable it in Claude Code
 
-Add both a `Notification` hook and a `PreToolUse` hook for `AskUserQuestion` in `.claude/settings.json`:
+Add `Notification`, `PermissionRequest`, and `PreToolUse` hooks in `.claude/settings.json`:
 
 ```json
 {
   "hooks": {
     "Notification": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/notify.sh"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
       {
         "matcher": "*",
         "hooks": [
@@ -74,19 +87,28 @@ The script runs automatically when Claude Code emits a notification or asks you 
 
 ### Event types handled
 
-| Event | What triggers it |
-|---|---|
-| `Notification` | Permission prompts, idle prompts, auth success, elicitation events |
-| `PreToolUse` (AskUserQuestion) | Claude asks you a multiple-choice question with options |
+| Event | What triggers it | Example notification |
+|---|---|---|
+| `Notification` | Idle prompts, auth success, elicitation events, generic alerts | `[my-project] Claude is waiting for your input` |
+| `PermissionRequest` | Claude needs your approval to run a tool | `Run: npm test` or `Edit file: config.ts` |
+| `PreToolUse` (AskUserQuestion) | Claude asks you a multiple-choice question | `Q1: Which framework? → React, Vue, Svelte` |
 
 When Claude asks a question, the notification body includes every question and its options (e.g., `Q1: Which framework? → React, Vue, Svelte`), so you know exactly what you need to answer.
+
+When Claude requests permission, the notification shows a human-readable summary of what it wants to do — shell commands, file writes, web fetches, searches, and more.
 
 ### Test it
 
 **Test a notification event:**
 
 ```bash
-echo '{"hook_event_name":"Notification","notification_type":"test","message":"Hello from Claude Code","title":"Claude Code","cwd":"/home/user/projects/my-project"}' | bash notify.sh
+echo '{"hook_event_name":"Notification","notification_type":"idle_prompt","message":"Claude is waiting for your input","title":"Claude Code","cwd":"/home/user/projects/my-project"}' | bash notify.sh
+```
+
+**Test a permission request:**
+
+```bash
+echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"npm run test -- --coverage"},"cwd":"/home/user/projects/my-project"}' | bash notify.sh
 ```
 
 **Test an AskUserQuestion event:**
@@ -105,6 +127,17 @@ The script handles two hook event types:
 1. Reads the JSON payload from stdin
 2. Extracts `title`, `notification_type`, `message`, and `cwd`
 3. Sends a push notification with the project name prepended
+
+### PermissionRequest events
+1. Detects the `PermissionRequest` event
+2. Extracts `tool_name` and `tool_input`
+3. Builds a human-readable summary based on the tool type:
+   - **Bash** → `Run: <command>` (truncated to 120 chars)
+   - **Write/Edit/Read** → `Write file: <filename>`
+   - **WebFetch** → `Fetch: <url>`
+   - **WebSearch** → `Search: <query>`
+   - **Glob/Grep** → `Glob: <pattern>` / `Grep: <pattern>`
+   - Other tools → `Use <tool_name>`
 
 ### AskUserQuestion (PreToolUse) events
 1. Detects the `PreToolUse` event with `tool_name: "AskUserQuestion"`

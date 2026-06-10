@@ -12,12 +12,61 @@ EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // "unknown"')
 PROJECT=$(echo "$INPUT" | jq -r '.cwd // empty' | xargs basename 2>/dev/null || echo "")
 
 # Read config from env vars with fallbacks
-BARK_KEY="${BARK_KEY:-<your key>}"
-BARK_URL="${BARK_BASE_URL:-https://bark.day.app}/push"
+BARK_KEY="${BARK_KEY:-VPe8RPpq2Npo6CaWGrexS3}"
+BARK_URL="${BARK_BASE_URL:-https://bark.flexkit.cn}/push"
 
 # --- Build title, subtitle, and body based on event type ---
 
-if [ "$EVENT" = "PreToolUse" ]; then
+if [ "$EVENT" = "PermissionRequest" ]; then
+  TOOL=$(echo "$INPUT" | jq -r '.tool_name // "unknown"')
+
+  # Build a human-readable summary of what the action is doing
+  case "$TOOL" in
+    Bash)
+      CMD=$(echo "$INPUT" | jq -r '.tool_input.command // "unknown command"')
+      # Truncate long commands
+      if [ ${#CMD} -gt 120 ]; then CMD="${CMD:0:117}..."; fi
+      SUMMARY="Run: $CMD"
+      ;;
+    Write)
+      FP=$(echo "$INPUT" | jq -r '.tool_input.file_path // "unknown"')
+      SUMMARY="Write file: $(basename "$FP")"
+      ;;
+    Edit)
+      FP=$(echo "$INPUT" | jq -r '.tool_input.file_path // "unknown"')
+      SUMMARY="Edit file: $(basename "$FP")"
+      ;;
+    Read)
+      FP=$(echo "$INPUT" | jq -r '.tool_input.file_path // "unknown"')
+      SUMMARY="Read file: $(basename "$FP")"
+      ;;
+    Glob)
+      PAT=$(echo "$INPUT" | jq -r '.tool_input.pattern // "*"')
+      SUMMARY="Glob: $PAT"
+      ;;
+    Grep)
+      PAT=$(echo "$INPUT" | jq -r '.tool_input.pattern // ""')
+      SUMMARY="Grep: $PAT"
+      ;;
+    WebFetch)
+      URL=$(echo "$INPUT" | jq -r '.tool_input.url // "unknown"')
+      SUMMARY="Fetch: $URL"
+      ;;
+    WebSearch)
+      QRY=$(echo "$INPUT" | jq -r '.tool_input.query // "unknown"')
+      if [ ${#QRY} -gt 100 ]; then QRY="${QRY:0:97}..."; fi
+      SUMMARY="Search: $QRY"
+      ;;
+    *)
+      SUMMARY="Use $TOOL"
+      ;;
+  esac
+
+  TITLE="Claude Code - Needs Permission"
+  SUBTITLE="$TOOL"
+  BODY="$SUMMARY"
+
+elif [ "$EVENT" = "PreToolUse" ]; then
   TOOL=$(echo "$INPUT" | jq -r '.tool_name // "unknown"')
 
   if [ "$TOOL" = "AskUserQuestion" ]; then
