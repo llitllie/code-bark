@@ -76,6 +76,16 @@ Add `Notification`, `PermissionRequest`, and `PreToolUse` hooks in `.claude/sett
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/notify.sh"
+          }
+        ]
+      }
     ]
   }
 }
@@ -89,13 +99,17 @@ The script runs automatically when Claude Code emits a notification or asks you 
 
 | Event | What triggers it | Example notification |
 |---|---|---|
-| `Notification` | Idle prompts, auth success, elicitation events, generic alerts | `[my-project] Claude is waiting for your input` |
+| `Notification` (idle_prompt) | Claude is done and waiting for input | `Claude is waiting for your input` — enriched with context from the preceding Stop/AskUserQuestion event |
+| `Notification` (other) | Auth success, elicitation events, generic alerts | `Authentication successful` |
 | `PermissionRequest` | Claude needs your approval to run a tool | `Run: npm test` or `Edit file: config.ts` |
 | `PreToolUse` (AskUserQuestion) | Claude asks you a multiple-choice question | `Q1: Which framework? → React, Vue, Svelte` |
+| `Stop` | Claude finishes a turn (saves context for idle_prompt) | _(no notification sent — saves summary for idle_prompt)_ |
 
-When Claude asks a question, the notification body includes every question and its options (e.g., `Q1: Which framework? → React, Vue, Svelte`), so you know exactly what you need to answer.
+When Claude goes idle, the notification now includes a summary of what just happened:
+- **If it just completed a job**: shows the first 300 chars of Claude's last message
+- **If it just asked a question**: shows `Question: Which framework?`
 
-When Claude requests permission, the notification shows a human-readable summary of what it wants to do — shell commands, file writes, web fetches, searches, and more.
+This means you can glance at your phone and know whether Claude is waiting because it finished something, or because it needs an answer.
 
 ### Test it
 
@@ -127,6 +141,12 @@ The script handles two hook event types:
 1. Reads the JSON payload from stdin
 2. Extracts `title`, `notification_type`, `message`, and `cwd`
 3. Sends a push notification with the project name prepended
+
+### Stop events
+1. Detects the `Stop` event
+2. Extracts `last_assistant_message` — Claude's final response text
+3. Saves a truncated summary (first 300 chars) to `/tmp/claude-code-context-<session_id>.txt`
+4. Exits silently (no notification sent — the saved context is picked up by the next idle_prompt)
 
 ### PermissionRequest events
 1. Detects the `PermissionRequest` event

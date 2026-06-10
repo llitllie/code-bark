@@ -12,8 +12,24 @@ EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // "unknown"')
 PROJECT=$(echo "$INPUT" | jq -r '.cwd // empty' | xargs basename 2>/dev/null || echo "")
 
 # Read config from env vars with fallbacks
-BARK_KEY="${BARK_KEY:-VPe8RPpq2Npo6CaWGrexS3}"
-BARK_URL="${BARK_BASE_URL:-https://bark.flexkit.cn}/push"
+BARK_KEY="${BARK_KEY:-<your key>}"
+BARK_URL="${BARK_BASE_URL:-https://bark.day.app}/push"
+
+# Temp file for passing context between events (keyed by session_id)
+SESSION=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
+CONTEXT_FILE="/tmp/claude-code-context-${SESSION}.txt"
+
+# --- Save context from Stop events for idle_prompt to pick up ---
+if [ "$EVENT" = "Stop" ]; then
+  LAST_MSG=$(echo "$INPUT" | jq -r '.last_assistant_message // ""')
+  if [ -n "$LAST_MSG" ]; then
+    # Save a summary (first 300 chars) of what was just completed
+    SUMMARY=$(echo "$LAST_MSG" | head -c 300)
+    if [ ${#LAST_MSG} -gt 300 ]; then SUMMARY="${SUMMARY}..."; fi
+    echo "$SUMMARY" > "$CONTEXT_FILE"
+  fi
+  exit 0  # Stop events don't need a notification; idle_prompt will use the saved context
+fi
 
 # --- Build title, subtitle, and body based on event type ---
 
@@ -92,6 +108,9 @@ elif [ "$EVENT" = "PreToolUse" ]; then
     TITLE="Claude Code - Asks a Question"
     SUBTITLE="AskUserQuestion (${QUESTION_COUNT} question(s))"
     BODY="$MSG_PARTS"
+
+    # Save question context so idle_prompt can reference it
+    echo "Question: $(echo "$QUESTIONS_JSON" | jq -r '.[0].question // ""')" > "$CONTEXT_FILE"
   else
     # Other PreToolUse events (e.g. permission checks) — generic notification
     TITLE="Claude Code - PreToolUse"
@@ -99,10 +118,28 @@ elif [ "$EVENT" = "PreToolUse" ]; then
     BODY=$(echo "$INPUT" | jq -r '.tool_input // {} | tostring')
   fi
 else
-  # Notification event (original behavior)
-  TITLE="Claude Code - $(echo "$INPUT" | jq -r '.title // .notification_type // "Claude Code"')"
-  SUBTITLE=$(echo "$INPUT" | jq -r '.notification_type // "unknown"')
-  BODY=$(echo "$INPUT" | jq -r '.message // "Needs your attention"')
+  # Notification event
+  NTYPE=$(echo "$INPUT" | jq -r '.notification_type // "unknown"')
+
+  if [ "$NTYPE" = "idle_prompt" ]; then
+    # Enrich idle_prompt with context from the preceding Stop or AskUserQuestion event
+    TITLE="Claude Code - Idle"
+    SUBTITLE="idle_prompt"
+    BASE_MSG=$(echo "$INPUT" | jq -r '.message // "Waiting for your input"')
+    SAVED=$(cat "$CONTEXT_FILE" 2>/dev/null || echo "")
+    if [ -n "$SAVED" ]; then
+      BODY="${BASE_MSG}
+
+${SAVED}"
+    else
+      BODY="$BASE_MSG"
+    fi
+  else
+    # Other notification types (permission_prompt, auth_success, elicitation_*, etc.)
+    TITLE="Claude Code - $(echo "$INPUT" | jq -r '.title // .notification_type // "Claude Code"')"
+    SUBTITLE="$NTYPE"
+    BODY=$(echo "$INPUT" | jq -r '.message // "Needs your attention"')
+  fi
 fi
 
 # Prepend project name if available
