@@ -100,6 +100,7 @@ The script runs automatically when Claude Code emits a notification or asks you 
 | Event | What triggers it | Example notification |
 |---|---|---|
 | `Notification` (idle_prompt) | Claude is done and waiting for input | `Claude is waiting for your input` — enriched with context from the preceding Stop/AskUserQuestion event |
+| `Notification` (permission_prompt) | _(skipped — PermissionRequest provides richer detail)_ | — |
 | `Notification` (other) | Auth success, elicitation events, generic alerts | `Authentication successful` |
 | `PermissionRequest` | Claude needs your approval to run a tool | `Run: npm test` or `Edit file: config.ts` |
 | `PreToolUse` (AskUserQuestion) | Claude asks you a multiple-choice question | `Q1: Which framework? → React, Vue, Svelte` |
@@ -129,6 +130,12 @@ echo '{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"c
 
 ```bash
 echo '{"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which framework?","header":"Framework","options":[{"label":"React"},{"label":"Vue"},{"label":"Svelte"}],"multiSelect":false}]},"cwd":"/home/user/projects/my-project"}' | bash notify.sh
+```
+
+**Test a Stop event (Claude finishes a job):**
+
+```bash
+echo '{"hook_event_name":"Stop","session_id":"test-123","last_assistant_message":"I have completed the refactoring. Here is a summary of the changes:\n\n1. Extracted auth logic into a separate module\n2. Added unit tests for the login flow\n3. Updated the API client to use the new token format\n\nAll tests pass. The build is green.","cwd":"/home/user/projects/my-project"}' | bash notify.sh 
 ```
 
 If setup is correct, you'll receive a push notification on your iOS device. The notification body will show `[my-project] Hello from Claude Code` — the project name is detected from the `cwd` field automatically.
